@@ -13,7 +13,7 @@ You run a set of pinned tools (impeccable, axe-core in headless Chromium, modern
 
 | Mode | What it does | When to use it |
 | --- | --- | --- |
-| `tools-only` | Run `review.mjs`, present its `report.md` as is, add no judgement of your own. | The user says "tools only" or "tools-only". |
+| `tools-only` | Run `review.mjs` and `render-review.mjs`, present the result as is, add no judgement of your own. | The user says "tools only" or "tools-only". |
 | `quick` | Tools without the browser checks, then triage and the judgement rules from `references/rules.md`. | Default for a local path with no URL. |
 | `full` | Everything in `quick`, plus the browser checks and the screenshot review. | Default for a URL or when `--url` is given. |
 
@@ -37,7 +37,9 @@ Run `node {{SKILL_DIR}}/scripts/review.mjs <target> [--browser] [--url <url>] --
 
 ## Step 5: Report
 
-Write `<out>/review.md` and show the summary in chat. Format: title, target, mode, date, tool versions; a summary table (Critical / Warning / Advisory, plus "dropped as false positives: n"); findings tables per severity with columns `# | Source | Rule | Location | Issue | Fix` (Source = tool name or `judgement` or `visual`); `## What works well` (2-3 points); `## AI-slop score: X/10` with the rubric from `rules.md`; `## Not checked` (anything skipped, for example contrast in quick mode, manual screen-reader testing).
+Write `<out>/review.json` following `{{SKILL_DIR}}/references/review-schema.md`: every kept finding (merged, with a plain-language title, location, issue and fix; Source = tool name or `judgement` or `visual`), the dropped false positives with reasons, 2-3 points under `worksWell`, the AI-slop score with the rubric from `rules.md`, and `notChecked` (anything skipped, for example contrast in quick mode, manual screen-reader testing). Then run `node {{SKILL_DIR}}/scripts/render-review.mjs <out>`, which writes `<out>/review.html` (one self-contained page with the screenshots embedded) and `<out>/review.md`. In chat, give a short summary of the critical findings and warnings and the path to `review.html`.
+
+In `tools-only` mode, skip `review.json` and run `render-review.mjs` straight after Step 1: it renders the raw tool findings.
 
 ## Rules
 

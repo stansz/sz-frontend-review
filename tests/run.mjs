@@ -134,6 +134,35 @@ try {
   // Run C: missing target
   const c = review(['does-not-exist']);
   check('C exit code is 1', c.status === 1, `exit ${c.status}`);
+
+  // Run D: render the browser run (dirA) as HTML, first raw (tools-only), then from a review.json
+  const render = () => spawnSync(process.execPath, ['scripts/render-review.mjs', dirA], { encoding: 'utf8' });
+  const htmlPath = path.join(dirA, 'review.html');
+  const d1 = render();
+  check('D raw render exits 0', d1.status === 0, d1.stderr);
+  const raw = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, 'utf8') : '';
+  check('D raw html embeds 3 screenshots', (raw.match(/src="data:image\/png;base64,/g) || []).length === 3, 'screenshots not embedded');
+  check('D raw html lists tool findings', raw.includes('gradient-text') && raw.includes('image-alt'), 'rule ids missing');
+  check('D raw html is tools-only', raw.includes('Raw tool output, not yet triaged'), 'funnel text missing');
+  fs.writeFileSync(path.join(dirA, 'review.json'), JSON.stringify({
+    title: 'Fixture <Page>',
+    mode: 'full',
+    findings: [
+      { severity: 'critical', source: 'visual', rule: 'responsive-collapse', title: 'Row overflows on phones', viewport: '390px', location: 'fixtures/bad-page/index.html:9', issue: 'The `.wide` row is 1200px.', fix: 'Use `max-width: 100%`.' },
+    ],
+    dropped: [{ rule: 'overused-font', source: 'impeccable', count: 1, reason: 'Fixture.' }],
+    score: { total: 3, parts: [{ name: 'Colour palette', score: 0, max: 3 }] },
+  }));
+  const d2 = render();
+  check('D review render exits 0', d2.status === 0, d2.stderr);
+  const html = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, 'utf8') : '';
+  check('D html escapes the title', html.includes('<h1>Fixture &lt;Page&gt;</h1>'), 'title not escaped');
+  check('D html renders inline code', html.includes('<code>.wide</code>'), 'inline code missing');
+  check('D html links finding to its screenshot', html.includes('data-shot="390">See 390px screenshot'), 'screenshot button missing');
+  check('D html shows dropped and score', html.includes('Dropped as false positives (1)') && html.includes('AI-slop score'), 'sections missing');
+  check('D markdown written', fs.existsSync(path.join(dirA, 'review.md')) && fs.readFileSync(path.join(dirA, 'review.md'), 'utf8').includes('Row overflows on phones'), 'review.md missing');
+  fs.writeFileSync(path.join(dirA, 'review.json'), JSON.stringify({ findings: [{ severity: 'error' }] }));
+  check('D bad severity is rejected', render().status === 1, 'accepted severity "error"');
 } finally {
   for (const dir of tempDirs) {
     try {
