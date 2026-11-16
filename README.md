@@ -47,6 +47,10 @@ Claude Code:
 
 `<target>` is a local directory, a local `.html` file or an `http(s)://` URL. It writes `<out>/findings.json` (merged findings, tool versions, tool errors, summary) and `<out>/report.md` (the Markdown report), plus screenshots and the rendered HTML when the browser checks run.
 
+`node scripts/render-review.mjs <out>`
+
+Turns the review into `<out>/review.html`, one self-contained page (screenshots embedded, light and dark themes, filters by severity and source), plus `<out>/review.md`. It uses the agent's triage in `<out>/review.json` (schema: `references/review-schema.md`); without that file it renders the raw tool findings. The page has no external requests, so it can be opened offline, attached, or published as is.
+
 ## Updating the tools
 
 ```sh
