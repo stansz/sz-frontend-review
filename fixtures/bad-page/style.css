@@ -1,0 +1,2 @@
+.accordion { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+.accordion.open { max-height: 500px; }

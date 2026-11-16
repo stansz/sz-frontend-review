@@ -1,0 +1,7 @@
+{
+  "impeccable:low-contrast": "error",
+  "impeccable:broken-image": "error",
+  "impeccable:text-overflow": "error",
+  "impeccable:script-error": "error",
+  "impeccable:overused-font": "advisory"
+}

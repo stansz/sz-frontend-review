@@ -1,110 +1,125 @@
 #!/usr/bin/env node
 
 /**
- * check-updates.mjs — Fetches latest antipatterns.mjs from pbakaus/impeccable
- * and reports any rules not yet in our references/rules.md.
+ * check-updates.mjs — Report newer versions of the pinned tools and drift in
+ * the impeccable rule list. Never fails: prints `unknown` on network or parse
+ * failures and always exits 0.
  *
- * Usage: node check-updates.mjs
+ * Usage: node scripts/check-updates.mjs [--write]
  */
 
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const RULES_PATH = join(__dirname, '..', 'references', 'rules.md');
-const IMPECCABLE_RAW = 'https://raw.githubusercontent.com/pbakaus/impeccable/main/cli/engine/registry/antipatterns.mjs';
+const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+const repoDir = path.dirname(scriptsDir);
+const bin = (name) => path.join(scriptsDir, 'node_modules', '.bin', name);
+const RULES_PATH = path.join(repoDir, 'references', 'impeccable-rules.txt');
+const write = process.argv.includes('--write');
 
-async function main() {
-  // Read our current rules
-  let ourRules;
+function checkVersions() {
+  let pkg;
   try {
-    ourRules = readFileSync(RULES_PATH, 'utf-8');
+    pkg = JSON.parse(fs.readFileSync(path.join(scriptsDir, 'package.json'), 'utf8'));
   } catch {
-    console.error('ERROR: Could not read references/rules.md');
-    process.exit(1);
+    console.log('package.json  pinned unknown  latest unknown  unknown');
+    return;
   }
-
-  // Fetch latest antipatterns from impeccable
-  console.log('Fetching latest rules from pbakaus/impeccable...');
-  let remote;
-  try {
-    const res = await fetch(IMPECCABLE_RAW);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    remote = await res.text();
-  } catch (e) {
-    console.error(`ERROR: Could not fetch impeccable antipatterns: ${e.message}`);
-    process.exit(1);
-  }
-
-  // Extract rule IDs from remote source
-  const remoteIds = new Set();
-  const idRe = /id\s*:\s*'([^']+)'/g;
-  let m;
-  while ((m = idRe.exec(remote)) !== null) {
-    remoteIds.add(m[1]);
-  }
-
-  // Extract rule names and descriptions from remote
-  const remoteRules = [];
-  const ruleBlockRe = /\{\s*\n\s*id:\s*'([^']+)',[\s\S]*?name:\s*'([^']+)',[\s\S]*?description:\s*'([^']*)'/g;
-  while ((m = ruleBlockRe.exec(remote)) !== null) {
-    remoteRules.push({ id: m[1], name: m[2], description: m[3].replace(/\\'/g, "'") });
-  }
-
-  // Check which remote IDs are in our rules.md
-  const missing = [];
-  for (const rule of remoteRules) {
-    // Look for the rule ID as a heading or reference in our rules
-    if (!ourRules.includes(`### ${rule.id}`) && !ourRules.includes(`#${rule.id}`)) {
-      missing.push(rule);
+  for (const [name, pinned] of Object.entries(pkg.dependencies || {})) {
+    let latest = 'unknown';
+    try {
+      const r = spawnSync('npm', ['view', name, 'version'], {
+        encoding: 'utf8',
+        timeout: 60000,
+      });
+      if (r.status === 0 && r.stdout && r.stdout.trim()) {
+        const lines = r.stdout.trim().split('\n').filter((l) => l.trim());
+        latest = lines[lines.length - 1].trim();
+      }
+    } catch {
+      latest = 'unknown';
     }
+    const status =
+      latest === 'unknown' ? 'unknown' : latest === pinned ? 'up to date' : 'UPDATE AVAILABLE';
+    console.log(`${name}  pinned ${pinned}  latest ${latest}  ${status}`);
   }
-
-  // Also check for rules we have that aren't in impeccable anymore
-  const ourIds = new Set();
-  const ourIdRe = /### (\S+)/g;
-  while ((m = ourIdRe.exec(ourRules)) !== null) {
-    if (m[1] !== 'Categories') ourIds.add(m[1]);
-  }
-
-  const removed = [...ourIds].filter(id => !remoteIds.has(id));
-
-  // Report
-  console.log(`\nImpeccable has ${remoteRules.length} rules. We have ${ourIds.size} rules.\n`);
-
-  if (missing.length > 0) {
-    console.log(`🆕 ${missing.length} new rule(s) in impeccable, NOT in our rules.md:\n`);
-    for (const rule of missing) {
-      console.log(`  [${rule.id}] ${rule.name}`);
-      console.log(`  ${rule.description}\n`);
-    }
-    console.log('To add these: tell Hermes "update the frontend review rules" and the agent will add them.\n');
-  }
-
-  if (removed.length > 0) {
-    console.log(`🗑️ ${removed.length} rule(s) in our rules.md, REMOVED from impeccable:\n`);
-    for (const id of removed) {
-      console.log(`  ${id}`);
-    }
-    console.log('\nConsider whether to keep or remove these.\n');
-  }
-
-  if (missing.length === 0 && removed.length === 0) {
-    console.log('✅ Our rules are up to date with impeccable.\n');
-  }
-
-  // Output JSON for programmatic use
-  console.log(JSON.stringify({
-    ourCount: ourIds.size,
-    remoteCount: remoteRules.length,
-    newRules: missing,
-    removedRules: removed,
-    upToDate: missing.length === 0 && removed.length === 0
-  }, null, 2));
 }
 
-main().catch(e => {
-  console.error(`FATAL: ${e.message}`);
-  process.exit(1);
-});
+function checkRules() {
+  let installedVersion = 'unknown';
+  try {
+    installedVersion = JSON.parse(
+      fs.readFileSync(path.join(scriptsDir, 'node_modules', 'impeccable', 'package.json'), 'utf8'),
+    ).version;
+  } catch {
+    installedVersion = 'unknown';
+  }
+
+  let installed = [];
+  try {
+    const r = spawnSync(bin('impeccable'), ['detect', '--list-rules', '--json'], {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 60000,
+    });
+    if (r.status === 0 && r.stdout && r.stdout.trim()) {
+      const arr = JSON.parse(r.stdout);
+      if (Array.isArray(arr)) installed = arr.map((item) => item.id).filter(Boolean);
+    }
+  } catch {
+    installed = [];
+  }
+
+  if (installed.length === 0) {
+    console.log('impeccable rules: unknown');
+    return;
+  }
+
+  let fileIds = [];
+  try {
+    fileIds = fs
+      .readFileSync(RULES_PATH, 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+  } catch {
+    fileIds = [];
+  }
+
+  console.log(
+    `impeccable rules: ${installed.length} installed, ${fileIds.length} in impeccable-rules.txt`,
+  );
+
+  const installedSet = new Set(installed);
+  const fileSet = new Set(fileIds);
+  const added = installed.filter((id) => !fileSet.has(id));
+  const removed = fileIds.filter((id) => !installedSet.has(id));
+
+  if (added.length === 0 && removed.length === 0) {
+    console.log('rule list matches');
+  } else {
+    if (added.length > 0) {
+      console.log('added:');
+      for (const id of added) console.log(`  ${id}`);
+    }
+    if (removed.length > 0) {
+      console.log('removed:');
+      for (const id of removed) console.log(`  ${id}`);
+    }
+  }
+
+  if (write) {
+    const header = `# impeccable ${installedVersion} rule ids, written by check-updates.mjs --write`;
+    fs.writeFileSync(RULES_PATH, header + '\n' + installed.join('\n') + '\n');
+  }
+}
+
+try {
+  checkVersions();
+  checkRules();
+} catch (e) {
+  console.log(`unknown (${e && e.message ? e.message : e})`);
+}
+process.exit(0);
